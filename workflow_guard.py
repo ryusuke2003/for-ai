@@ -14,7 +14,7 @@ from pathlib import Path
 
 WORKFLOW_SUFFIXES = {".yml", ".yaml"}
 FULL_SHA = re.compile(r"^[0-9a-fA-F]{40}$")
-USES_LINE = re.compile(r"^\s*uses\s*:\s*([^\s#]+)")
+USES_LINE = re.compile(r"^\s*(?:-\s*)?uses\s*:\s*([^\s#]+)")
 WRITE_PERMISSION = re.compile(r"^\s*[A-Za-z0-9_-]+\s*:\s*write\s*(?:#.*)?$")
 WRITE_ALL = re.compile(r"^\s*permissions\s*:\s*write-all\s*(?:#.*)?$")
 PULL_REQUEST_TARGET = re.compile(r"(?:^|[\s\[-])pull_request_target\s*:")
