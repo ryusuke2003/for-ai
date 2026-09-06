@@ -70,6 +70,22 @@ class SourceIntegrityTest(unittest.TestCase):
             findings = scan(root, ("script.py",))
             self.assertIn("binary-content-in-text-file", {item.category for item in findings})
 
+    def test_env_variant_with_nul_is_blocked_as_text(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            path = root / ".env.production"
+            path.write_bytes(b"KEY=value\n\x00hidden")
+            findings = scan(root, (".env.production",))
+            self.assertIn("binary-content-in-text-file", {item.category for item in findings})
+
+    def test_codeowners_non_utf8_is_blocked_as_text(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            path = root / "CODEOWNERS"
+            path.write_bytes(b"* @team\n\xff")
+            findings = scan(root, ("CODEOWNERS",))
+            self.assertIn("non-utf8-text-file", {item.category for item in findings})
+
     def test_non_utf8_known_text_file_is_blocked(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
