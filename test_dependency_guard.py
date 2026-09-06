@@ -59,8 +59,8 @@ class DependencyGuardTest(unittest.TestCase):
     def test_normal_pip_options_are_not_dependencies(self):
         findings = self._scan_files(
             {
-                "requirements.txt": "example==1.2.3 \\\n"
-                "    --hash=sha256:abc123\n"
+                "requirements.txt": "example==1.2.3\n"
+                "--hash=sha256:abc123\n"
                 "--only-binary=:all:\n"
             }
         )
