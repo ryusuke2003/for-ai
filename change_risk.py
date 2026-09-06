@@ -227,6 +227,27 @@ def _level(score: int) -> str:
     return "low"
 
 
+def _collapse_findings(findings: list[Finding]) -> tuple[Finding, ...]:
+    """Charge each risk category once, using one representative path for the report."""
+    grouped: dict[str, Finding] = {}
+    for item in findings:
+        current = grouped.get(item.category)
+        if current is None:
+            grouped[item.category] = item
+            continue
+
+        # Category weights are fixed; keep the highest defensively and the smallest
+        # path for deterministic, non-inflating reports.
+        points = max(current.points, item.points)
+        paths = [path for path in (current.path, item.path) if path is not None]
+        representative = min(paths) if paths else None
+        grouped[item.category] = Finding(item.category, points, representative)
+
+    return tuple(
+        sorted(grouped.values(), key=lambda item: (-item.points, item.category, item.path or ""))
+    )
+
+
 def analyze(name_status: bytes, patch: str) -> Result:
     changes = parse_name_status(name_status)
     findings: list[Finding] = []
@@ -236,8 +257,7 @@ def analyze(name_status: bytes, patch: str) -> Result:
     added, deleted, patch_findings = _patch_metrics(patch)
     findings.extend(patch_findings)
 
-    unique = {(item.category, item.path): item for item in findings}
-    ordered = tuple(sorted(unique.values(), key=lambda item: (-item.points, item.category, item.path or "")))
+    ordered = _collapse_findings(findings)
     score = sum(item.points for item in ordered)
 
     return Result(
