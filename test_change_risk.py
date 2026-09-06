@@ -19,6 +19,18 @@ class ChangeRiskTest(unittest.TestCase):
         self.assertEqual(result.level, "medium")
         self.assertIn("workflow-change", {item.category for item in result.findings})
 
+    def test_same_risk_category_is_charged_once_across_files(self):
+        names = (
+            b"M\0.github/workflows/a.yml\0"
+            b"M\0.github/workflows/b.yml\0"
+            b"M\0.github/workflows/c.yml\0"
+        )
+        result = analyze(names, "+contents: read\n")
+        workflow_findings = [item for item in result.findings if item.category == "workflow-change"]
+        self.assertEqual(len(workflow_findings), 1)
+        self.assertEqual(result.score, 30)
+        self.assertEqual(result.level, "medium")
+
     def test_dependency_change_adds_risk(self):
         result = analyze(b"M\0package-lock.json\0", "+updated lock entry\n")
         self.assertEqual(result.score, 20)
