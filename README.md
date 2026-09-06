@@ -40,6 +40,21 @@ python3 reviewer.py --json answer.txt
 python3 reviewer.py --strict answer.txt
 ```
 
+## Change Risk Scorer
+
+PRの差分を実行せずに読み、変更内容のレビュー優先度を `LOW` / `MEDIUM` / `HIGH` / `CRITICAL` で評価します。
+
+主に次の変更を重く評価します。
+
+- GitHub ActionsやローカルAction
+- 依存関係・デプロイ・インフラ関連ファイル
+- 認証・権限・Secret周辺のファイル
+- テスト削除
+- `write` 権限追加、`pull_request_target`、download-and-executeなどの危険度が高い追加行
+- 大規模な差分
+
+GitHub Actionsではpull requestごとに自動評価し、`CRITICAL` の変更はCIを失敗させます。レポートには追加されたソースコード自体を表示せず、カテゴリとエスケープ済みファイルパスだけを出します。
+
 ### テスト
 
 外部依存はありません。
@@ -48,7 +63,7 @@ python3 reviewer.py --strict answer.txt
 python3 -m unittest -v
 ```
 
-GitHub Actionsでもpush / pull requestごとにPython 3.12で同じテストを自動実行します。
+GitHub ActionsでもPython 3.12でテストと各種ガードを自動実行します。
 
 ## 方針
 
