@@ -68,6 +68,22 @@ PRでソースコードが変わったときに、テスト変更の有無と確
 
 GitHub Actionsではpull requestごとに自動分析します。
 
+## Dependency Policy Guard
+
+依存関係manifestをインストールや実行なしで静的に検査し、サプライチェーン上レビューが必要な指定を検出します。
+
+現在の主な対象:
+
+- `package.json`
+- `requirements*.txt`
+- `pyproject.toml`
+- `Cargo.toml`
+- `go.mod`
+
+主に、Git/HTTP URLへの直接依存、カスタムPython package index、リポジトリ外のpath依存をブロックします。`*` / `latest` のような浮動バージョン、npmのinstall lifecycle script、ローカルpath依存、lockfileなしのnpm manifestは警告として表示します。
+
+manifestの内容や依存先URLそのものはレポートへ出さず、カテゴリとエスケープ済みファイルパスだけを表示します。GitHub Actionsではpull requestごとに自動検査します。
+
 ### テスト
 
 外部依存はありません。
