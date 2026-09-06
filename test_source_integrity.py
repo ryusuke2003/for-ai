@@ -62,6 +62,14 @@ class SourceIntegrityTest(unittest.TestCase):
             path.write_bytes(b"\x00\xff\x10" + chr(0x202E).encode("utf-8"))
             self.assertEqual(scan(root, ("asset.bin",)), ())
 
+    def test_nul_in_known_text_file_is_blocked(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            path = root / "script.py"
+            path.write_bytes(b"print('safe')\n\x00hidden")
+            findings = scan(root, ("script.py",))
+            self.assertIn("binary-content-in-text-file", {item.category for item in findings})
+
     def test_non_utf8_known_text_file_is_blocked(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -77,6 +85,13 @@ class SourceIntegrityTest(unittest.TestCase):
             target.write_text("print('outside')\n", encoding="utf-8")
             (root / "linked.py").symlink_to(target)
             findings = scan(root, ("linked.py",))
+            self.assertIn("changed-symlink-not-inspected", {item.category for item in findings})
+
+    def test_broken_symlink_is_blocked(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "broken.py").symlink_to(root / "missing.py")
+            findings = scan(root, ("broken.py",))
             self.assertIn("changed-symlink-not-inspected", {item.category for item in findings})
 
     def test_invisible_character_in_path_is_blocked_without_opening_file(self):
