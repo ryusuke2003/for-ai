@@ -13,6 +13,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 LEVELS = ("low", "medium", "high", "critical")
+MAX_NAMES_BYTES = 1024 * 1024
+MAX_PATCH_BYTES = 8 * 1024 * 1024
+VALID_STATUSES = {"A", "B", "C", "D", "M", "R", "T", "U", "X"}
 
 DEPENDENCY_FILES = {
     "package.json",
@@ -94,7 +97,7 @@ def _decode_path(raw: bytes) -> str:
 
 
 def parse_name_status(data: bytes) -> list[Change]:
-    """Parse `git diff --name-status -z` output safely, including renames."""
+    """Parse `git diff --name-status -z` output and reject malformed metadata."""
     fields = data.split(b"\0")
     changes: list[Change] = []
     index = 0
@@ -107,19 +110,27 @@ def parse_name_status(data: bytes) -> list[Change]:
 
         status_text = raw_status.decode("ascii", errors="replace")
         status = status_text[:1]
+        if status not in VALID_STATUSES:
+            raise ValueError("unknown change status")
+
         if status in {"R", "C"}:
             if index + 1 >= len(fields):
                 raise ValueError("truncated rename/copy entry")
-            old_path = _decode_path(fields[index])
-            new_path = _decode_path(fields[index + 1])
+            old_raw = fields[index]
+            new_raw = fields[index + 1]
             index += 2
-            changes.append(Change(status, new_path, old_path))
+            if not old_raw or not new_raw:
+                raise ValueError("empty rename/copy path")
+            changes.append(Change(status, _decode_path(new_raw), _decode_path(old_raw)))
             continue
 
         if index >= len(fields):
             raise ValueError("truncated name-status entry")
-        changes.append(Change(status, _decode_path(fields[index])))
+        path_raw = fields[index]
         index += 1
+        if not path_raw:
+            raise ValueError("empty change path")
+        changes.append(Change(status, _decode_path(path_raw)))
 
     return changes
 
@@ -225,7 +236,6 @@ def analyze(name_status: bytes, patch: str) -> Result:
     added, deleted, patch_findings = _patch_metrics(patch)
     findings.extend(patch_findings)
 
-    # A category/path pair is charged once so repeated matching lines cannot inflate a score.
     unique = {(item.category, item.path): item for item in findings}
     ordered = tuple(sorted(unique.values(), key=lambda item: (-item.points, item.category, item.path or "")))
     score = sum(item.points for item in ordered)
@@ -259,6 +269,26 @@ def format_report(result: Result) -> str:
     return "\n".join(lines)
 
 
+def _read_limited(path: Path, limit: int) -> bytes:
+    with path.open("rb") as handle:
+        data = handle.read(limit + 1)
+    if len(data) > limit:
+        raise ValueError("input exceeds size limit")
+    return data
+
+
+def load_inputs(
+    names_path: Path,
+    patch_path: Path,
+    max_names_bytes: int = MAX_NAMES_BYTES,
+    max_patch_bytes: int = MAX_PATCH_BYTES,
+) -> tuple[bytes, str]:
+    """Read bounded scanner inputs so a huge PR cannot consume unbounded memory."""
+    names = _read_limited(names_path, max_names_bytes)
+    patch_bytes = _read_limited(patch_path, max_patch_bytes)
+    return names, patch_bytes.decode("utf-8", errors="replace")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Score the risk of a Git diff without executing it.")
     parser.add_argument("--names", required=True, help="File containing `git diff --name-status -z` output.")
@@ -275,8 +305,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     try:
-        name_status = Path(args.names).read_bytes()
-        patch = Path(args.patch).read_text(encoding="utf-8", errors="replace")
+        name_status, patch = load_inputs(Path(args.names), Path(args.patch))
         result = analyze(name_status, patch)
     except (OSError, ValueError) as exc:
         print(f"BLOCK: unable to score change metadata ({type(exc).__name__}).")
