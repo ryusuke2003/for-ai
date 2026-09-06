@@ -15,19 +15,21 @@ from pathlib import Path
 WORKFLOW_SUFFIXES = {".yml", ".yaml"}
 FULL_SHA = re.compile(r"^[0-9a-fA-F]{40}$")
 USES_LINE = re.compile(r"^\s*(?:-\s*)?uses\s*:\s*([^\s#]+)")
-WRITE_PERMISSION = re.compile(r"^\s*[A-Za-z0-9_-]+\s*:\s*write\s*(?:#.*)?$")
+WRITE_PERMISSION = re.compile(
+    r"^\s*['\"]?[A-Za-z0-9_-]+['\"]?\s*:\s*write\s*(?:#.*)?$"
+)
 WRITE_ALL = re.compile(r"^\s*permissions\s*:\s*write-all\s*(?:#.*)?$")
 INLINE_WRITE_PERMISSION = re.compile(
-    r"^\s*permissions\s*:\s*\{[^}\n]*\b[A-Za-z0-9_-]+\s*:\s*write\b"
+    r"^\s*permissions\s*:\s*\{[^}\n]*['\"]?[A-Za-z0-9_-]+['\"]?\s*:\s*write\b"
 )
-PULL_REQUEST_TARGET_KEY = re.compile(r"^\s*pull_request_target\s*:")
+PULL_REQUEST_TARGET_KEY = re.compile(r"^\s*['\"]?pull_request_target['\"]?\s*:")
 PULL_REQUEST_TARGET_INLINE_LIST = re.compile(
     r"^\s*on\s*:\s*\[[^\]]*\bpull_request_target\b"
 )
 PULL_REQUEST_TARGET_INLINE_MAP = re.compile(
-    r"^\s*on\s*:\s*\{[^}\n]*\bpull_request_target\s*:"
+    r"^\s*on\s*:\s*\{[^}\n]*['\"]?pull_request_target['\"]?\s*:"
 )
-SECRET_REFERENCE = re.compile(r"\$\{\{\s*secrets\.")
+SECRET_REFERENCE = re.compile(r"\$\{\{\s*secrets(?:\.|\s*\[)")
 DOWNLOAD_AND_EXECUTE = re.compile(
     r"(?i)\b(?:curl|wget)\b[^\n|]*\|\s*(?:sudo\s+)?(?:bash|sh)\b"
 )
