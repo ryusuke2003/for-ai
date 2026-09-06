@@ -59,6 +59,7 @@ TEXT_SUFFIXES = {
     ".jsx",
     ".kt",
     ".kts",
+    ".lock",
     ".md",
     ".markdown",
     ".php",
@@ -86,15 +87,37 @@ TEXT_SUFFIXES = {
     ".zsh",
 }
 TEXT_NAMES = {
+    ".dockerignore",
+    ".editorconfig",
+    ".env",
+    ".gitattributes",
+    ".gitignore",
+    ".gitmodules",
+    ".npmrc",
+    ".prettierrc",
+    ".pypirc",
+    ".python-version",
+    ".stylelintrc",
+    ".tool-versions",
+    ".yarnrc",
+    "build",
+    "codeowners",
     "dockerfile",
     "gemfile",
     "go.mod",
     "go.sum",
     "go.work",
+    "justfile",
     "makefile",
     "pipfile",
     "procfile",
+    "workspace",
 }
+TEXT_NAME_PREFIXES = (
+    ".env.",
+    "dockerfile.",
+    "makefile.",
+)
 
 
 @dataclass(frozen=True)
@@ -145,7 +168,12 @@ def _is_noncharacter(codepoint: int) -> bool:
 
 def _is_text_hint(path: str) -> bool:
     pure = PurePosixPath(path)
-    return pure.suffix.lower() in TEXT_SUFFIXES or pure.name.lower() in TEXT_NAMES
+    name = pure.name.lower()
+    return (
+        pure.suffix.lower() in TEXT_SUFFIXES
+        or name in TEXT_NAMES
+        or any(name.startswith(prefix) for prefix in TEXT_NAME_PREFIXES)
+    )
 
 
 def _is_document(path: str) -> bool:

@@ -25,7 +25,7 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: git diff --name-only -z "$BASE_SHA" "$HEAD_SHA" -- > /tmp/source-integrity-paths
+        run: git diff --name-only --diff-filter=ACMRTUXB -z "$BASE_SHA" "$HEAD_SHA" -- > /tmp/source-integrity-paths
 
       - name: Check source integrity
         run: python source_integrity.py --root . --paths /tmp/source-integrity-paths --strict
