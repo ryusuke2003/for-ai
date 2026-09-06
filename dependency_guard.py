@@ -116,13 +116,23 @@ def _is_remote(value: str) -> bool:
 def _local_ref_kind(value: str) -> str | None:
     raw = value.strip()
     lowered = raw.lower()
+    local_prefix = False
     for prefix in ("file:", "link:"):
         if lowered.startswith(prefix):
             raw = raw[len(prefix) :]
+            local_prefix = True
             break
-    if raw.startswith("../") or raw == ".." or os.path.isabs(raw):
+
+    normalized = raw.replace("\\", "/")
+    if (
+        normalized.startswith("../")
+        or normalized == ".."
+        or normalized.startswith("//")
+        or bool(re.match(r"^[A-Za-z]:/", normalized))
+        or os.path.isabs(raw)
+    ):
         return "outside"
-    if raw.startswith("./") or raw == ".":
+    if normalized.startswith("./") or normalized == "." or local_prefix:
         return "inside"
     return None
 
@@ -191,7 +201,6 @@ def _python_requirement_findings(path: str, entries: list[str]) -> list[Finding]
         if is_editable:
             editable = editable.split(maxsplit=1)[1] if " " in editable else ""
         elif value.startswith("-"):
-            # Normal pip options such as --hash/--only-binary are not dependencies.
             continue
 
         if _is_remote(editable) or " @ http://" in editable.lower() or " @ https://" in editable.lower() or " @ git+" in editable.lower():
@@ -272,6 +281,30 @@ def _poetry_table_findings(path: str, value: Any) -> list[Finding]:
     return findings
 
 
+def _cargo_spec_findings(path: str, spec: Any) -> list[Finding]:
+    findings: list[Finding] = []
+    if isinstance(spec, str):
+        if spec.strip() == "*":
+            findings.append(Finding("warn", "floating-dependency-version", path))
+        return findings
+    if not isinstance(spec, dict):
+        return findings
+    if "git" in spec or "registry" in spec:
+        findings.append(Finding("block", "alternate-dependency-source", path))
+    if isinstance(spec.get("path"), str):
+        kind = _local_ref_kind(spec["path"])
+        findings.append(
+            Finding(
+                "block" if kind == "outside" else "warn",
+                "outside-repository-dependency" if kind == "outside" else "local-path-dependency",
+                path,
+            )
+        )
+    if spec.get("version") == "*":
+        findings.append(Finding("warn", "floating-dependency-version", path))
+    return findings
+
+
 def _cargo_findings(path: str, text: str) -> list[Finding]:
     try:
         data = tomllib.loads(text)
@@ -280,43 +313,54 @@ def _cargo_findings(path: str, text: str) -> list[Finding]:
 
     findings: list[Finding] = []
 
-    def visit(node: Any, section: str = "") -> None:
+    def visit(node: Any, section: str = "", in_override: bool = False) -> None:
         if not isinstance(node, dict):
             return
-        dependency_section = section.lower() in {"dependencies", "dev-dependencies", "build-dependencies"}
-        if dependency_section:
+        section_lower = section.lower()
+        dependency_section = section_lower in {"dependencies", "dev-dependencies", "build-dependencies"}
+        current_override = in_override or section_lower in {"patch", "replace"}
+        if dependency_section or in_override:
             for spec in node.values():
-                if isinstance(spec, str) and spec.strip() == "*":
-                    findings.append(Finding("warn", "floating-dependency-version", path))
-                elif isinstance(spec, dict):
-                    if "git" in spec or "registry" in spec:
-                        findings.append(Finding("block", "alternate-dependency-source", path))
-                    if isinstance(spec.get("path"), str):
-                        kind = _local_ref_kind(spec["path"])
-                        findings.append(
-                            Finding(
-                                "block" if kind == "outside" else "warn",
-                                "outside-repository-dependency" if kind == "outside" else "local-path-dependency",
-                                path,
-                            )
-                        )
-                    if spec.get("version") == "*":
-                        findings.append(Finding("warn", "floating-dependency-version", path))
+                findings.extend(_cargo_spec_findings(path, spec))
         for key, child in node.items():
             if isinstance(child, dict):
-                visit(child, key)
+                visit(child, key, current_override)
 
     visit(data)
     return findings
 
 
+def _go_replace_target(line: str) -> str | None:
+    if "=>" not in line:
+        return None
+    right = line.split("=>", 1)[1].strip()
+    if not right:
+        return None
+    return right.split()[0]
+
+
 def _go_findings(path: str, text: str) -> list[Finding]:
     findings: list[Finding] = []
+    in_replace_block = False
     for line_number, raw in enumerate(text.splitlines(), start=1):
         line = raw.split("//", 1)[0].strip()
-        if not line.startswith("replace ") or "=>" not in line:
+        if not line:
             continue
-        target = line.split("=>", 1)[1].strip().split()[0]
+        if line == "replace (":
+            in_replace_block = True
+            continue
+        if in_replace_block and line == ")":
+            in_replace_block = False
+            continue
+
+        target = None
+        if in_replace_block:
+            target = _go_replace_target(line)
+        elif line.startswith("replace "):
+            target = _go_replace_target(line)
+        if target is None:
+            continue
+
         kind = _local_ref_kind(target)
         if kind == "outside":
             findings.append(Finding("block", "outside-repository-dependency", path, line_number))
