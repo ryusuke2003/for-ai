@@ -1,6 +1,8 @@
+import tempfile
 import unittest
+from pathlib import Path
 
-from change_risk import analyze, format_report, parse_name_status
+from change_risk import analyze, format_report, load_inputs, parse_name_status
 
 
 class ChangeRiskTest(unittest.TestCase):
@@ -54,6 +56,23 @@ class ChangeRiskTest(unittest.TestCase):
         self.assertEqual(changes[0].status, "R")
         self.assertEqual(changes[0].previous_path, "old.txt")
         self.assertEqual(changes[0].path, "new.txt")
+
+    def test_malformed_name_status_fails_closed(self):
+        with self.assertRaises(ValueError):
+            parse_name_status(b"M\0\0")
+        with self.assertRaises(ValueError):
+            parse_name_status(b"Q\0file.txt\0")
+
+    def test_input_size_limit_fails_closed(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            names = root / "names"
+            patch = root / "patch"
+            names.write_bytes(b"M\0file.txt\0")
+            patch.write_bytes(b"123456")
+
+            with self.assertRaises(ValueError):
+                load_inputs(names, patch, max_names_bytes=100, max_patch_bytes=5)
 
     def test_report_never_echoes_added_source_content(self):
         marker = "private-looking-value-that-must-not-be-echoed"
