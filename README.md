@@ -76,9 +76,11 @@ GitHub Actionsではpull requestごとに自動分析します。
 
 - `package.json`
 - `requirements*.txt`
-- `pyproject.toml`
+- `pyproject.toml`（PEP 621 / Poetry / uv sources・index）
+- `Pipfile`
 - `Cargo.toml`
 - `go.mod`
+- `go.work`
 
 主に、Git/HTTP URLへの直接依存、カスタムPython package index、リポジトリ外のpath依存をブロックします。`*` / `latest` のような浮動バージョン、npmのinstall lifecycle script、ローカルpath依存、lockfileなしのnpm manifestは警告として表示します。
 

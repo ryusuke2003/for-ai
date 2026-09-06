@@ -39,6 +39,7 @@ REMOTE_PREFIXES = (
     "gitlab:",
     "bitbucket:",
 )
+OFFICIAL_PYPI_URLS = {"https://pypi.org/simple", "https://pypi.org/simple/"}
 
 
 @dataclass(frozen=True)
@@ -85,10 +86,14 @@ def _manifest_kind(path: str) -> str | None:
         return "npm"
     if lower == "pyproject.toml":
         return "pyproject"
+    if lower == "pipfile":
+        return "pipfile"
     if lower == "cargo.toml":
         return "cargo"
     if lower == "go.mod":
         return "go"
+    if lower == "go.work":
+        return "go-work"
     if re.fullmatch(r"requirements(?:[-_.][a-z0-9_-]+)?\.txt", lower):
         return "requirements"
     return None
@@ -228,6 +233,54 @@ def _requirements_findings(path: str, text: str) -> list[Finding]:
     return findings
 
 
+def _source_spec_findings(path: str, spec: Any) -> list[Finding]:
+    findings: list[Finding] = []
+    if isinstance(spec, list):
+        for item in spec:
+            findings.extend(_source_spec_findings(path, item))
+        return findings
+    if not isinstance(spec, dict):
+        return findings
+    if any(key in spec for key in ("git", "url")):
+        findings.append(Finding("block", "direct-remote-dependency", path))
+    if isinstance(spec.get("path"), str):
+        kind = _local_ref_kind(spec["path"])
+        findings.append(
+            Finding(
+                "block" if kind == "outside" else "warn",
+                "outside-repository-dependency" if kind == "outside" else "local-path-dependency",
+                path,
+            )
+        )
+    if "index" in spec:
+        findings.append(Finding("warn", "alternate-dependency-source", path))
+    if spec.get("workspace") is True:
+        findings.append(Finding("warn", "local-workspace-dependency", path))
+    return findings
+
+
+def _uv_findings(path: str, uv: Any) -> list[Finding]:
+    if not isinstance(uv, dict):
+        return []
+    findings: list[Finding] = []
+    sources = uv.get("sources")
+    if isinstance(sources, dict):
+        for spec in sources.values():
+            findings.extend(_source_spec_findings(path, spec))
+
+    indexes = uv.get("index")
+    if isinstance(indexes, dict):
+        indexes = [indexes]
+    if isinstance(indexes, list):
+        for index in indexes:
+            if not isinstance(index, dict):
+                continue
+            url = index.get("url")
+            if isinstance(url, str) and url.strip() not in OFFICIAL_PYPI_URLS:
+                findings.append(Finding("block", "alternate-dependency-source", path))
+    return findings
+
+
 def _pyproject_findings(path: str, text: str) -> list[Finding]:
     try:
         data = tomllib.loads(text)
@@ -246,10 +299,13 @@ def _pyproject_findings(path: str, text: str) -> list[Finding]:
                 if isinstance(values, list):
                     findings.extend(_python_requirement_findings(path, [item for item in values if isinstance(item, str)]))
 
-    poetry = data.get("tool", {}).get("poetry", {}) if isinstance(data.get("tool"), dict) else {}
-    if isinstance(poetry, dict):
-        for section_name in ("dependencies", "group"):
-            findings.extend(_poetry_table_findings(path, poetry.get(section_name, {})))
+    tool = data.get("tool", {})
+    if isinstance(tool, dict):
+        poetry = tool.get("poetry", {})
+        if isinstance(poetry, dict):
+            for section_name in ("dependencies", "group"):
+                findings.extend(_poetry_table_findings(path, poetry.get(section_name, {})))
+        findings.extend(_uv_findings(path, tool.get("uv")))
     return findings
 
 
@@ -278,6 +334,69 @@ def _poetry_table_findings(path: str, value: Any) -> list[Finding]:
     for group in value.values():
         if isinstance(group, dict) and isinstance(group.get("dependencies"), dict):
             findings.extend(_poetry_table_findings(path, group["dependencies"]))
+    return findings
+
+
+def _pipfile_spec_findings(path: str, spec: Any) -> list[Finding]:
+    findings: list[Finding] = []
+    if isinstance(spec, str):
+        stripped = spec.strip()
+        if _is_remote(stripped):
+            findings.append(Finding("block", "direct-remote-dependency", path))
+        else:
+            kind = _local_ref_kind(stripped)
+            if kind == "outside":
+                findings.append(Finding("block", "outside-repository-dependency", path))
+            elif kind == "inside":
+                findings.append(Finding("warn", "local-path-dependency", path))
+            elif stripped == "*":
+                findings.append(Finding("warn", "floating-dependency-version", path))
+        return findings
+    if not isinstance(spec, dict):
+        return findings
+    if any(key in spec for key in ("git", "url")):
+        findings.append(Finding("block", "direct-remote-dependency", path))
+    for key in ("path", "file"):
+        if isinstance(spec.get(key), str):
+            kind = _local_ref_kind(spec[key])
+            findings.append(
+                Finding(
+                    "block" if kind == "outside" else "warn",
+                    "outside-repository-dependency" if kind == "outside" else "local-path-dependency",
+                    path,
+                )
+            )
+    if spec.get("version") == "*":
+        findings.append(Finding("warn", "floating-dependency-version", path))
+    if "index" in spec:
+        findings.append(Finding("warn", "alternate-dependency-source", path))
+    return findings
+
+
+def _pipfile_findings(path: str, text: str) -> list[Finding]:
+    try:
+        data = tomllib.loads(text)
+    except tomllib.TOMLDecodeError:
+        return [Finding("block", "manifest-parse-error", path)]
+    findings: list[Finding] = []
+    for section_name in ("packages", "dev-packages"):
+        section = data.get(section_name)
+        if isinstance(section, dict):
+            for spec in section.values():
+                findings.extend(_pipfile_spec_findings(path, spec))
+
+    sources = data.get("source")
+    if isinstance(sources, dict):
+        sources = [sources]
+    if isinstance(sources, list):
+        for source in sources:
+            if not isinstance(source, dict):
+                continue
+            if source.get("verify_ssl") is False:
+                findings.append(Finding("block", "insecure-package-index", path))
+            url = source.get("url")
+            if isinstance(url, str) and url.strip() not in OFFICIAL_PYPI_URLS:
+                findings.append(Finding("block", "alternate-dependency-source", path))
     return findings
 
 
@@ -339,6 +458,15 @@ def _go_replace_target(line: str) -> str | None:
     return right.split()[0]
 
 
+def _local_target_finding(path: str, target: str, line_number: int, warn_inside: bool = True) -> Finding | None:
+    kind = _local_ref_kind(target)
+    if kind == "outside":
+        return Finding("block", "outside-repository-dependency", path, line_number)
+    if kind == "inside" and warn_inside:
+        return Finding("warn", "local-path-dependency", path, line_number)
+    return None
+
+
 def _go_findings(path: str, text: str) -> list[Finding]:
     findings: list[Finding] = []
     in_replace_block = False
@@ -353,19 +481,52 @@ def _go_findings(path: str, text: str) -> list[Finding]:
             in_replace_block = False
             continue
 
-        target = None
-        if in_replace_block:
-            target = _go_replace_target(line)
-        elif line.startswith("replace "):
-            target = _go_replace_target(line)
+        target = _go_replace_target(line) if in_replace_block or line.startswith("replace ") else None
         if target is None:
             continue
+        finding = _local_target_finding(path, target, line_number)
+        if finding:
+            findings.append(finding)
+    return findings
 
-        kind = _local_ref_kind(target)
-        if kind == "outside":
-            findings.append(Finding("block", "outside-repository-dependency", path, line_number))
-        elif kind == "inside":
-            findings.append(Finding("warn", "local-path-dependency", path, line_number))
+
+def _go_work_findings(path: str, text: str) -> list[Finding]:
+    findings: list[Finding] = []
+    in_use_block = False
+    in_replace_block = False
+    for line_number, raw in enumerate(text.splitlines(), start=1):
+        line = raw.split("//", 1)[0].strip()
+        if not line:
+            continue
+        if line == "use (":
+            in_use_block = True
+            continue
+        if line == "replace (":
+            in_replace_block = True
+            continue
+        if line == ")":
+            in_use_block = False
+            in_replace_block = False
+            continue
+
+        if in_use_block:
+            target = line.split()[0]
+            finding = _local_target_finding(path, target, line_number, warn_inside=False)
+            if finding:
+                findings.append(finding)
+            continue
+        if line.startswith("use "):
+            target = line[4:].strip().split()[0]
+            finding = _local_target_finding(path, target, line_number, warn_inside=False)
+            if finding:
+                findings.append(finding)
+            continue
+
+        target = _go_replace_target(line) if in_replace_block or line.startswith("replace ") else None
+        if target is not None:
+            finding = _local_target_finding(path, target, line_number)
+            if finding:
+                findings.append(finding)
     return findings
 
 
@@ -391,10 +552,14 @@ def scan(root: Path, tracked_paths: tuple[str, ...]) -> tuple[Finding, ...]:
             findings.extend(_requirements_findings(relative, text))
         elif kind == "pyproject":
             findings.extend(_pyproject_findings(relative, text))
+        elif kind == "pipfile":
+            findings.extend(_pipfile_findings(relative, text))
         elif kind == "cargo":
             findings.extend(_cargo_findings(relative, text))
         elif kind == "go":
             findings.extend(_go_findings(relative, text))
+        elif kind == "go-work":
+            findings.extend(_go_work_findings(relative, text))
 
     unique = {(item.severity, item.category, item.path, item.line): item for item in findings}
     return tuple(

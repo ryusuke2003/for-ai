@@ -96,6 +96,50 @@ class DependencyGuardTest(unittest.TestCase):
         )
         self.assertIn("outside-repository-dependency", {item.category for item in findings})
 
+    def test_uv_sources_and_custom_index_are_checked(self):
+        findings = self._scan_files(
+            {
+                "pyproject.toml": '[project]\nname = "demo"\nversion = "0.1.0"\n'
+                '[tool.uv.sources]\nremote = { git = "https://example.invalid/repo.git" }\n'
+                'outside = { path = "../outside" }\n'
+                '[[tool.uv.index]]\nname = "custom"\nurl = "https://example.invalid/simple"\n'
+            }
+        )
+        categories = {item.category for item in findings if item.severity == "block"}
+        self.assertIn("direct-remote-dependency", categories)
+        self.assertIn("outside-repository-dependency", categories)
+        self.assertIn("alternate-dependency-source", categories)
+
+    def test_uv_official_pypi_index_is_allowed(self):
+        findings = self._scan_files(
+            {
+                "pyproject.toml": '[project]\nname = "demo"\nversion = "0.1.0"\n'
+                '[[tool.uv.index]]\nname = "pypi"\nurl = "https://pypi.org/simple"\n'
+            }
+        )
+        self.assertEqual(findings, ())
+
+    def test_pipfile_default_source_is_allowed(self):
+        findings = self._scan_files(
+            {
+                "Pipfile": '[[source]]\nurl = "https://pypi.org/simple"\nverify_ssl = true\nname = "pypi"\n'
+                '[packages]\nexample = "==1.2.3"\n'
+            }
+        )
+        self.assertEqual(findings, ())
+
+    def test_pipfile_remote_dependency_and_insecure_source_are_blocked(self):
+        findings = self._scan_files(
+            {
+                "Pipfile": '[[source]]\nurl = "https://example.invalid/simple"\nverify_ssl = false\nname = "custom"\n'
+                '[packages]\nremote = { git = "https://example.invalid/repo.git" }\n'
+            }
+        )
+        categories = {item.category for item in findings if item.severity == "block"}
+        self.assertIn("direct-remote-dependency", categories)
+        self.assertIn("insecure-package-index", categories)
+        self.assertIn("alternate-dependency-source", categories)
+
     def test_cargo_git_and_outside_path_are_blocked(self):
         findings = self._scan_files(
             {
@@ -138,6 +182,17 @@ class DependencyGuardTest(unittest.TestCase):
         categories = {(item.severity, item.category) for item in findings}
         self.assertIn(("warn", "local-path-dependency"), categories)
         self.assertIn(("block", "outside-repository-dependency"), categories)
+
+    def test_go_work_use_outside_repository_is_blocked(self):
+        findings = self._scan_files(
+            {
+                "go.work": "go 1.24\nuse (\n  ./inside\n  ../outside\n)\n"
+                "replace example.invalid/lib => ./lib\n"
+            }
+        )
+        categories = {(item.severity, item.category) for item in findings}
+        self.assertIn(("block", "outside-repository-dependency"), categories)
+        self.assertIn(("warn", "local-path-dependency"), categories)
 
     def test_manifest_symlink_is_blocked_without_following_it(self):
         with tempfile.TemporaryDirectory() as temp, tempfile.TemporaryDirectory() as outside:
