@@ -36,6 +36,7 @@ SOURCE_SUFFIXES = {
     ".ts",
     ".tsx",
 }
+TEST_DIR_NAMES = {"test", "tests", "__tests__", "spec", "specs"}
 SKIP_DIRS = {
     ".git",
     ".mypy_cache",
@@ -78,19 +79,33 @@ def _safe_path(path: str) -> str:
     return escaped[:240] + ("..." if len(escaped) > 240 else "")
 
 
+def _strip_source_suffix(name: str) -> str:
+    lowered = name.lower()
+    for suffix in sorted(SOURCE_SUFFIXES, key=len, reverse=True):
+        if lowered.endswith(suffix):
+            return name[: -len(suffix)]
+    return name
+
+
+def _has_test_name_marker(name: str) -> bool:
+    stem = _strip_source_suffix(name)
+    lowered = stem.lower()
+    if lowered.startswith(("test_", "test-")):
+        return True
+    if re.search(r"(?:[._-](?:test|tests|spec|specs))$", lowered):
+        return True
+    # Common JUnit/xUnit/PHPUnit-style class/file names. Keep this case-sensitive
+    # so ordinary lower-case words such as `contest.py` are not misclassified.
+    return bool(re.search(r"(?:Test|Tests|Spec|Specs)$", stem))
+
+
 def _is_test_path(path: str) -> bool:
-    lowered = path.lower().replace("\\", "/")
-    name = Path(lowered).name
-    return (
-        "/test/" in f"/{lowered}/"
-        or "/tests/" in f"/{lowered}/"
-        or "/__tests__/" in f"/{lowered}/"
-        or name.startswith("test_")
-        or name.startswith("test-")
-        or name.endswith("_test.py")
-        or name.endswith("_test.go")
-        or ".test." in name
-        or ".spec." in name
+    normalized = path.replace("\\", "/")
+    parts = Path(normalized).parts
+    directory_parts = {part.lower() for part in parts[:-1]}
+    name = parts[-1] if parts else ""
+    return bool(directory_parts & TEST_DIR_NAMES) or _has_test_name_marker(name) or bool(
+        re.search(r"\.(?:test|spec)\.", name.lower())
     )
 
 
@@ -99,20 +114,22 @@ def _is_source_path(path: str) -> bool:
 
 
 def _normalized_stem(path: str) -> str:
-    name = Path(path).name.lower()
-    for suffix in sorted(SOURCE_SUFFIXES, key=len, reverse=True):
-        if name.endswith(suffix):
-            name = name[: -len(suffix)]
-            break
-    name = re.sub(r"(?:\.test|\.spec|_test|-test)$", "", name)
-    name = re.sub(r"^(?:test_|test-)", "", name)
-    return re.sub(r"[^a-z0-9]+", "", name)
+    stem = _strip_source_suffix(Path(path).name)
+    stem = re.sub(r"^(?:test_|test-)", "", stem, flags=re.IGNORECASE)
+    stem = re.sub(
+        r"(?:[._-](?:test|tests|spec|specs))$",
+        "",
+        stem,
+        flags=re.IGNORECASE,
+    )
+    stem = re.sub(r"(?:Test|Tests|Spec|Specs)$", "", stem)
+    return re.sub(r"[^a-z0-9]+", "", stem.lower())
 
 
 def _shared_parent_component(source: str, test: str) -> bool:
     source_parts = {part.lower() for part in Path(source).parts[:-1] if len(part) >= 3}
     test_parts = {part.lower() for part in Path(test).parts[:-1] if len(part) >= 3}
-    ignored = {"src", "lib", "app", "test", "tests", "__tests__"}
+    ignored = {"src", "lib", "app"} | TEST_DIR_NAMES
     return bool((source_parts - ignored) & (test_parts - ignored))
 
 
