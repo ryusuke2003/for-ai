@@ -209,7 +209,17 @@ def _resolve_changed_file(root: Path, relative: str) -> Path:
     pure = PurePosixPath(relative)
     if pure.is_absolute() or ".." in pure.parts:
         raise ValueError("unsafe repository path")
+
     candidate = root.joinpath(*pure.parts)
+    current = root
+    for part in pure.parts[:-1]:
+        current = current / part
+        if current.is_symlink():
+            raise ValueError("parent directory is a symlink")
+
+    if candidate.is_symlink():
+        return candidate
+
     root_real = root.resolve()
     candidate_real = candidate.resolve(strict=False)
     if os.path.commonpath((str(root_real), str(candidate_real))) != str(root_real):
@@ -232,10 +242,10 @@ def scan(root: Path, changed_paths: tuple[str, ...]) -> tuple[Finding, ...]:
             findings.append(Finding("block", "unsafe-changed-path", relative))
             continue
 
-        if not candidate.exists():
-            continue
         if candidate.is_symlink():
             findings.append(Finding("block", "changed-symlink-not-inspected", relative))
+            continue
+        if not candidate.exists():
             continue
         if not candidate.is_file():
             continue
@@ -247,7 +257,9 @@ def scan(root: Path, changed_paths: tuple[str, ...]) -> tuple[Finding, ...]:
                 findings.append(Finding("block", "text-file-unreadable-or-too-large", relative))
             continue
 
-        if b"\x00" in raw[:8192]:
+        if b"\x00" in raw:
+            if _is_text_hint(relative):
+                findings.append(Finding("block", "binary-content-in-text-file", relative))
             continue
         try:
             text = raw.decode("utf-8")
