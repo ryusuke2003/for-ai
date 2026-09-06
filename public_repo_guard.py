@@ -17,7 +17,16 @@ from pathlib import Path
 MAX_FILE_BYTES = 2 * 1024 * 1024
 SKIP_DIRS = {".git", ".venv", "venv", "node_modules", "__pycache__"}
 SAFE_ENV_FILENAMES = {".env.example", ".env.sample", ".env.template"}
-RISKY_FILENAMES = {".env", "id_rsa", "id_ed25519"}
+RISKY_FILENAMES = {
+    ".env",
+    ".git-credentials",
+    ".netrc",
+    ".npmrc",
+    ".pypirc",
+    "credentials",
+    "id_ed25519",
+    "id_rsa",
+}
 RISKY_SUFFIXES = {".pem", ".key", ".p12", ".pfx"}
 
 PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -28,15 +37,41 @@ PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("aws-access-key-id", re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b")),
     ("github-token", re.compile(r"\bgh[pousr]_[A-Za-z0-9_]{20,}\b")),
     (
+        "github-fine-grained-token",
+        re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}\b"),
+    ),
+    ("sk-prefixed-token", re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\b")),
+    (
+        "slack-token",
+        re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{20,}\b"),
+    ),
+    (
+        "authorization-bearer-token",
+        re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/-]{20,}={0,2}"),
+    ),
+    (
         "generic-secret-assignment",
         re.compile(
-            r"(?i)\b(?:api[_-]?key|client[_-]?secret|access[_-]?token|password)\b"
-            r"\s*[:=]\s*['\"]?[A-Za-z0-9_./+=-]{16,}"
+            r"(?i)\b(?:"
+            r"api[_-]?key|"
+            r"aws[_-]?secret[_-]?access[_-]?key|"
+            r"client[_-]?secret|"
+            r"private[_-]?key|"
+            r"secret|"
+            r"secret[_-]?access[_-]?key|"
+            r"token|"
+            r"access[_-]?token|"
+            r"password"
+            r")\b\s*[:=]\s*['\"]?[A-Za-z0-9_./+=-]{16,}"
         ),
     ),
     (
         "email-address",
         re.compile(r"\b[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"),
+    ),
+    (
+        "phone-number",
+        re.compile(r"(?<!\d)0\d{1,4}-\d{1,4}-\d{3,4}(?!\d)"),
     ),
 )
 

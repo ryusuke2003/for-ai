@@ -24,11 +24,34 @@ class PublicRepoGuardTest(unittest.TestCase):
             self.assertTrue(any(item.category == "github-token" for item in findings))
             self.assertNotIn(secret, output)
 
+    def test_detects_fine_grained_github_token(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            secret = "github" + "_pat_" + "A" * 30
+            (root / "config.txt").write_text(secret, encoding="utf-8")
+
+            findings = scan_repository(root)
+            self.assertTrue(
+                any(item.category == "github-fine-grained-token" for item in findings)
+            )
+
     def test_detects_generic_secret_assignment(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             value = "A" * 24
             (root / "config.txt").write_text("password = " + value, encoding="utf-8")
+
+            findings = scan_repository(root)
+            self.assertTrue(
+                any(item.category == "generic-secret-assignment" for item in findings)
+            )
+
+    def test_detects_aws_secret_assignment(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            value = "A" * 40
+            content = "AWS" + "_SECRET_ACCESS_KEY=" + value
+            (root / "config.txt").write_text(content, encoding="utf-8")
 
             findings = scan_repository(root)
             self.assertTrue(
@@ -46,6 +69,15 @@ class PublicRepoGuardTest(unittest.TestCase):
 
             self.assertTrue(any(item.category == "email-address" for item in findings))
             self.assertNotIn(address, output)
+
+    def test_detects_phone_number(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            number = "090" + "-" + "1234" + "-" + "5678"
+            (root / "note.txt").write_text(number, encoding="utf-8")
+
+            findings = scan_repository(root)
+            self.assertTrue(any(item.category == "phone-number" for item in findings))
 
     def test_risky_filename_is_blocked(self):
         with tempfile.TemporaryDirectory() as temp:
