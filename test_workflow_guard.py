@@ -71,6 +71,13 @@ class WorkflowGuardTest(unittest.TestCase):
         )
         self.assertIn("pull-request-target", {item.category for item in findings})
 
+    def test_quoted_pull_request_target_key_is_blocked(self):
+        findings = self._scan(
+            "on:\n  \"pull_request_target\":\npermissions:\n  contents: read\n"
+            "jobs:\n  x:\n    steps:\n      - run: echo ok\n"
+        )
+        self.assertIn("pull-request-target", {item.category for item in findings})
+
     def test_write_permission_is_blocked(self):
         findings = self._scan(
             "on: [pull_request]\npermissions:\n  contents: write\n"
@@ -81,6 +88,13 @@ class WorkflowGuardTest(unittest.TestCase):
     def test_inline_write_permission_is_blocked(self):
         findings = self._scan(
             "on: [pull_request]\npermissions: { contents: write }\n"
+            "jobs:\n  x:\n    steps:\n      - run: echo ok\n"
+        )
+        self.assertIn("write-permission", {item.category for item in findings})
+
+    def test_quoted_write_permission_key_is_blocked(self):
+        findings = self._scan(
+            "on: [pull_request]\npermissions:\n  \"contents\": write\n"
             "jobs:\n  x:\n    steps:\n      - run: echo ok\n"
         )
         self.assertIn("write-permission", {item.category for item in findings})
@@ -97,6 +111,14 @@ class WorkflowGuardTest(unittest.TestCase):
         workflow = (
             "on: [pull_request]\npermissions:\n  contents: read\n"
             "jobs:\n  x:\n    steps:\n      - run: echo ${{" + "secrets.VALUE }}\n"
+        )
+        findings = self._scan(workflow)
+        self.assertIn("secret-reference", {item.category for item in findings})
+
+    def test_bracket_secret_reference_is_blocked(self):
+        workflow = (
+            "on: [pull_request]\npermissions:\n  contents: read\n"
+            "jobs:\n  x:\n    steps:\n      - run: echo ${{ " + "secrets['VALUE'] }}\n"
         )
         findings = self._scan(workflow)
         self.assertIn("secret-reference", {item.category for item in findings})
