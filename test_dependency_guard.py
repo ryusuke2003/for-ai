@@ -103,9 +103,10 @@ class DependencyGuardTest(unittest.TestCase):
                 read_tracked_paths(path)
 
     def test_report_escapes_path_and_never_prints_manifest_content(self):
-        findings = self._scan_files({"nested/<unsafe>|package.json": '{"dependencies":{"example":"*"}}'})
+        relative = "nested/<unsafe>|dir/package.json"
+        findings = self._scan_files({relative: '{"dependencies":{"example":"*"}}'})
         report = format_report(findings)
-        self.assertIn("nested/\\<unsafe\\>\\|package.json", report)
+        self.assertIn("nested/\\<unsafe\\>\\|dir/package.json", report)
         self.assertNotIn('"example":"*"', report)
 
 
