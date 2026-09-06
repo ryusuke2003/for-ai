@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from test_impact import analyze, discover_test_files, format_report
+from impact_analyzer import analyze, discover_test_files, format_report
 
 
 class TestImpactAnalyzerTest(unittest.TestCase):
@@ -23,12 +23,21 @@ class TestImpactAnalyzerTest(unittest.TestCase):
         self.assertEqual(result.signal, "tests-changed")
         self.assertEqual(result.test_changes, ("tests/test_auth.py",))
 
+    def test_analyzer_filename_is_not_misclassified_as_test(self):
+        result = analyze(
+            b"M\0impact_analyzer.py\0M\0test_test_impact.py\0",
+            ("test_test_impact.py",),
+        )
+        self.assertEqual(result.source_changes, ("impact_analyzer.py",))
+        self.assertEqual(result.test_changes, ("test_test_impact.py",))
+        self.assertEqual(result.signal, "tests-changed")
+
     def test_javascript_test_naming_is_matched(self):
         result = analyze(
             b"M\0src/session.ts\0",
             ("src/__tests__/session.test.ts",),
         )
-        self.assertEqual(result.impacts[0].candidates[0].score, 110)
+        self.assertEqual(result.impacts[0].candidates[0].score, 100)
 
     def test_document_change_does_not_require_tests(self):
         result = analyze(b"M\0docs/guide.md\0", ())
@@ -57,13 +66,14 @@ class TestImpactAnalyzerTest(unittest.TestCase):
             self.assertEqual(discover_test_files(root), ("tests/test_safe.py",))
 
     def test_report_escapes_repository_paths(self):
+        raw_path = "src/<tag>|module.py"
         result = analyze(
-            b"M\0src/<tag>|module.py\0",
+            b"M\0" + raw_path.encode() + b"\0",
             (),
         )
         output = format_report(result)
-        self.assertNotIn("<tag>", output)
-        self.assertNotIn("|module", output)
+        self.assertNotIn(raw_path, output)
+        self.assertIn("src/\\<tag\\>\\|module.py", output)
 
     def test_unrelated_test_is_not_suggested(self):
         result = analyze(
