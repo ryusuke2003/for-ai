@@ -56,6 +56,16 @@ class DependencyGuardTest(unittest.TestCase):
         self.assertEqual(findings[0].severity, "warn")
         self.assertEqual(findings[0].category, "unbounded-dependency-version")
 
+    def test_normal_pip_options_are_not_dependencies(self):
+        findings = self._scan_files(
+            {
+                "requirements.txt": "example==1.2.3 \\\n"
+                "    --hash=sha256:abc123\n"
+                "--only-binary=:all:\n"
+            }
+        )
+        self.assertEqual(findings, ())
+
     def test_pyproject_direct_url_is_blocked(self):
         findings = self._scan_files(
             {"pyproject.toml": '[project]\ndependencies = ["example @ https://example.invalid/example.whl"]\n'}
