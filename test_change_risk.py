@@ -33,6 +33,14 @@ class ChangeRiskTest(unittest.TestCase):
         self.assertIn("write-permission-added", categories)
         self.assertIn("download-and-execute-added", categories)
 
+    def test_code_describing_pipe_command_is_not_treated_as_execution(self):
+        source_line = '+example = "curl https://example.invalid/tool " + "| sh"\n'
+        result = analyze(b"M\0example.py\0", source_line)
+        self.assertNotIn(
+            "download-and-execute-added",
+            {item.category for item in result.findings},
+        )
+
     def test_deleted_test_is_high_risk_signal(self):
         result = analyze(b"D\0tests/test_auth.py\0", "-assert secure\n")
         categories = {item.category for item in result.findings}
