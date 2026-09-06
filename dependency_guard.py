@@ -130,7 +130,7 @@ def _local_ref_kind(value: str) -> str | None:
 def _npm_findings(path: str, text: str, tracked: set[str]) -> list[Finding]:
     try:
         data = json.loads(text)
-    except (json.JSONDecodeError, UnicodeDecodeError):
+    except json.JSONDecodeError:
         return [Finding("block", "manifest-parse-error", path)]
     if not isinstance(data, dict):
         return [Finding("block", "manifest-parse-error", path)]
@@ -187,8 +187,13 @@ def _python_requirement_findings(path: str, entries: list[str]) -> list[Finding]
             continue
 
         editable = value
-        if editable.startswith("-e ") or editable.startswith("--editable "):
+        is_editable = editable.startswith("-e ") or editable.startswith("--editable ")
+        if is_editable:
             editable = editable.split(maxsplit=1)[1] if " " in editable else ""
+        elif value.startswith("-"):
+            # Normal pip options such as --hash/--only-binary are not dependencies.
+            continue
+
         if _is_remote(editable) or " @ http://" in editable.lower() or " @ https://" in editable.lower() or " @ git+" in editable.lower():
             findings.append(Finding("block", "direct-remote-dependency", path))
             continue
@@ -235,8 +240,7 @@ def _pyproject_findings(path: str, text: str) -> list[Finding]:
     poetry = data.get("tool", {}).get("poetry", {}) if isinstance(data.get("tool"), dict) else {}
     if isinstance(poetry, dict):
         for section_name in ("dependencies", "group"):
-            section = poetry.get(section_name, {})
-            findings.extend(_poetry_table_findings(path, section))
+            findings.extend(_poetry_table_findings(path, poetry.get(section_name, {})))
     return findings
 
 
@@ -259,12 +263,9 @@ def _poetry_table_findings(path: str, value: Any) -> list[Finding]:
                     findings.append(Finding("block", "outside-repository-dependency", path))
                 else:
                     findings.append(Finding("warn", "local-path-dependency", path))
-        elif isinstance(spec, dict):
-            findings.extend(_poetry_table_findings(path, spec))
-    for nested_key in ("dependencies",):
-        nested = value.get(nested_key)
-        if isinstance(nested, dict):
-            findings.extend(_poetry_table_findings(path, nested))
+    nested = value.get("dependencies")
+    if isinstance(nested, dict):
+        findings.extend(_poetry_table_findings(path, nested))
     for group in value.values():
         if isinstance(group, dict) and isinstance(group.get("dependencies"), dict):
             findings.extend(_poetry_table_findings(path, group["dependencies"]))
@@ -282,8 +283,7 @@ def _cargo_findings(path: str, text: str) -> list[Finding]:
     def visit(node: Any, section: str = "") -> None:
         if not isinstance(node, dict):
             return
-        lower_section = section.lower()
-        dependency_section = lower_section in {"dependencies", "dev-dependencies", "build-dependencies"}
+        dependency_section = section.lower() in {"dependencies", "dev-dependencies", "build-dependencies"}
         if dependency_section:
             for spec in node.values():
                 if isinstance(spec, str) and spec.strip() == "*":
@@ -293,7 +293,13 @@ def _cargo_findings(path: str, text: str) -> list[Finding]:
                         findings.append(Finding("block", "alternate-dependency-source", path))
                     if isinstance(spec.get("path"), str):
                         kind = _local_ref_kind(spec["path"])
-                        findings.append(Finding("block" if kind == "outside" else "warn", "outside-repository-dependency" if kind == "outside" else "local-path-dependency", path))
+                        findings.append(
+                            Finding(
+                                "block" if kind == "outside" else "warn",
+                                "outside-repository-dependency" if kind == "outside" else "local-path-dependency",
+                                path,
+                            )
+                        )
                     if spec.get("version") == "*":
                         findings.append(Finding("warn", "floating-dependency-version", path))
         for key, child in node.items():
@@ -347,7 +353,12 @@ def scan(root: Path, tracked_paths: tuple[str, ...]) -> tuple[Finding, ...]:
             findings.extend(_go_findings(relative, text))
 
     unique = {(item.severity, item.category, item.path, item.line): item for item in findings}
-    return tuple(sorted(unique.values(), key=lambda item: (-SEVERITIES[item.severity], item.path, item.line or 0, item.category)))
+    return tuple(
+        sorted(
+            unique.values(),
+            key=lambda item: (-SEVERITIES[item.severity], item.path, item.line or 0, item.category),
+        )
+    )
 
 
 def format_report(findings: tuple[Finding, ...]) -> str:
