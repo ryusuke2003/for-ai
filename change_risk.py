@@ -54,7 +54,7 @@ CONTENT_RULES: tuple[tuple[str, int, re.Pattern[str]], ...] = (
     (
         "download-and-execute-added",
         55,
-        re.compile(r"(?i)\b(?:curl|wget)\b[^|\n]*\|\s*(?:sudo\s+)?(?:bash|sh)\b"),
+        re.compile(r"(?i)\b(?:curl|wget)\b[^|'\"\n]*\|\s*(?:sudo\s+)?(?:bash|sh)\b"),
     ),
     ("shell-true-added", 45, re.compile(r"\bshell\s*=\s*True\b")),
     (
