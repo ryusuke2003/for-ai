@@ -28,6 +28,18 @@ python3 reviewer.py answer.txt
 echo 'たぶん動きます。 TODO: 要確認' | python3 reviewer.py
 ```
 
+機械処理しやすいJSONで出す場合:
+
+```bash
+python3 reviewer.py --json answer.txt
+```
+
+指摘が1件でもあれば終了コード1にする場合:
+
+```bash
+python3 reviewer.py --strict answer.txt
+```
+
 ### テスト
 
 外部依存はありません。
@@ -35,6 +47,8 @@ echo 'たぶん動きます。 TODO: 要確認' | python3 reviewer.py
 ```bash
 python3 -m unittest -v
 ```
+
+GitHub Actionsでもpush / pull requestごとにPython 3.12で同じテストを自動実行します。
 
 ## 方針
 
