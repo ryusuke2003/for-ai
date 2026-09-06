@@ -40,6 +40,24 @@ class DependencyGuardTest(unittest.TestCase):
         self.assertIn("package-manifest-without-lockfile", categories)
         self.assertFalse(any(item.severity == "block" for item in findings))
 
+    def test_npm_local_file_paths_are_classified_across_platforms(self):
+        inside = self._scan_files(
+            {
+                "package.json": '{"dependencies":{"example":"file:packages/example"}}',
+                "package-lock.json": "{}",
+            }
+        )
+        windows_outside = self._scan_files(
+            {
+                "package.json": '{"dependencies":{"example":"file:C:\\\\outside\\\\example"}}',
+                "package-lock.json": "{}",
+            }
+        )
+        self.assertIn("local-path-dependency", {item.category for item in inside})
+        self.assertFalse(any(item.severity == "block" for item in inside))
+        self.assertIn("outside-repository-dependency", {item.category for item in windows_outside})
+        self.assertTrue(any(item.severity == "block" for item in windows_outside))
+
     def test_requirements_custom_index_and_remote_dependency_are_blocked(self):
         findings = self._scan_files(
             {
@@ -89,12 +107,37 @@ class DependencyGuardTest(unittest.TestCase):
         self.assertIn("alternate-dependency-source", categories)
         self.assertIn("outside-repository-dependency", categories)
 
+    def test_cargo_patch_and_replace_sources_are_checked(self):
+        findings = self._scan_files(
+            {
+                "Cargo.toml": '[patch.crates-io]\nremote = { git = "https://example.invalid/repo.git" }\n'
+                'local = { path = "../local" }\n'
+                '[replace]\n"old:1.0.0" = { git = "https://example.invalid/old.git" }\n'
+            }
+        )
+        categories = {item.category for item in findings if item.severity == "block"}
+        self.assertIn("alternate-dependency-source", categories)
+        self.assertIn("outside-repository-dependency", categories)
+
     def test_go_local_replace_is_classified_by_boundary(self):
         inside = self._scan_files({"go.mod": "module example.invalid/app\nreplace example.invalid/lib => ./lib\n"})
         outside = self._scan_files({"go.mod": "module example.invalid/app\nreplace example.invalid/lib => ../lib\n"})
         self.assertIn("local-path-dependency", {item.category for item in inside})
         self.assertFalse(any(item.severity == "block" for item in inside))
         self.assertIn("outside-repository-dependency", {item.category for item in outside})
+
+    def test_go_replace_block_form_is_checked(self):
+        findings = self._scan_files(
+            {
+                "go.mod": "module example.invalid/app\nreplace (\n"
+                "  example.invalid/inside => ./inside\n"
+                "  example.invalid/outside => ../outside\n"
+                ")\n"
+            }
+        )
+        categories = {(item.severity, item.category) for item in findings}
+        self.assertIn(("warn", "local-path-dependency"), categories)
+        self.assertIn(("block", "outside-repository-dependency"), categories)
 
     def test_manifest_symlink_is_blocked_without_following_it(self):
         with tempfile.TemporaryDirectory() as temp, tempfile.TemporaryDirectory() as outside:
