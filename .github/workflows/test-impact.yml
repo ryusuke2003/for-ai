@@ -28,7 +28,7 @@ jobs:
         run: git diff --name-status -z "$BASE_SHA" "$HEAD_SHA" -- > /tmp/test-impact-names
 
       - name: Analyze test impact
-        run: python test_impact.py --names /tmp/test-impact-names --root .
+        run: python impact_analyzer.py --names /tmp/test-impact-names --root .
 
       - name: Run analyzer tests
         run: python -m unittest -v test_test_impact.py
