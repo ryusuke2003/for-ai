@@ -1,14 +1,10 @@
 #!/usr/bin/env python3
-"""Tiny self-review CLI for AI-generated text.
-
-Reads text from a file or stdin and reports simple, deterministic signals that are
-useful before sending an answer: length, vague expressions, repeated sentences,
-and TODO-like placeholders.
-"""
+"""Tiny self-review CLI for AI-generated text."""
 
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 from collections import Counter
@@ -28,7 +24,8 @@ PLACEHOLDER_PATTERNS = [r"TODO", r"FIXME", r"TBD", r"XXX", r"要確認", r"仮�
 
 
 def split_sentences(text: str) -> list[str]:
-    parts = re.split(r"(?<=[。！？.!?])\s+|\n+", text)
+    """Split Japanese/English prose even when punctuation has no trailing space."""
+    parts = re.findall(r"[^。！？.!?\n]+[。！？.!?]?", text)
     return [part.strip() for part in parts if part.strip()]
 
 
@@ -53,28 +50,30 @@ def review_text(text: str) -> dict[str, object]:
     }
 
 
+def finding_count(report: dict[str, object]) -> int:
+    return sum(
+        len(report[key])
+        for key in ("duplicate_sentences", "vague_patterns", "placeholders")
+    )
+
+
 def format_report(report: dict[str, object]) -> str:
     lines = [
         "# Self review",
         f"- Characters: {report['characters']}",
         f"- Sentences: {report['sentences']}",
+        f"- Findings: {finding_count(report)}",
     ]
 
-    duplicates = report["duplicate_sentences"]
-    vague = report["vague_patterns"]
-    placeholders = report["placeholders"]
-
-    lines.append(f"- Duplicate sentences: {len(duplicates)}")
-    for item in duplicates:
-        lines.append(f"  - {item}")
-
-    lines.append(f"- Vague expressions: {len(vague)}")
-    for item in vague:
-        lines.append(f"  - /{item}/")
-
-    lines.append(f"- Placeholders: {len(placeholders)}")
-    for item in placeholders:
-        lines.append(f"  - /{item}/")
+    for label, key in (
+        ("Duplicate sentences", "duplicate_sentences"),
+        ("Vague expressions", "vague_patterns"),
+        ("Placeholders", "placeholders"),
+    ):
+        items = report[key]
+        lines.append(f"- {label}: {len(items)}")
+        for item in items:
+            lines.append(f"  - {item}")
 
     return "\n".join(lines)
 
@@ -82,14 +81,21 @@ def format_report(report: dict[str, object]) -> str:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Review text before an AI answer is shipped.")
     parser.add_argument("file", nargs="?", help="Text file to review. Reads stdin when omitted.")
+    parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Exit with status 1 when any finding is detected.",
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
     text = Path(args.file).read_text(encoding="utf-8") if args.file else sys.stdin.read()
-    print(format_report(review_text(text)))
-    return 0
+    report = review_text(text)
+    print(json.dumps(report, ensure_ascii=False, indent=2) if args.json else format_report(report))
+    return 1 if args.strict and finding_count(report) > 0 else 0
 
 
 if __name__ == "__main__":
