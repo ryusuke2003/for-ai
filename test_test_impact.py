@@ -39,6 +39,44 @@ class TestImpactAnalyzerTest(unittest.TestCase):
         )
         self.assertEqual(result.impacts[0].candidates[0].score, 100)
 
+    def test_java_pascal_case_test_suffix_is_matched(self):
+        result = analyze(
+            b"M\0src/UserService.java\0M\0src/UserServiceTest.java\0",
+            ("src/UserServiceTest.java",),
+        )
+        self.assertEqual(result.signal, "tests-changed")
+        self.assertEqual(result.test_changes, ("src/UserServiceTest.java",))
+        self.assertEqual(result.impacts[0].candidates[0].score, 100)
+
+    def test_ruby_spec_directory_and_suffix_are_matched(self):
+        result = analyze(
+            b"M\0lib/auth.rb\0M\0spec/auth_spec.rb\0",
+            ("spec/auth_spec.rb",),
+        )
+        self.assertEqual(result.signal, "tests-changed")
+        self.assertEqual(result.impacts[0].candidates[0].path, "spec/auth_spec.rb")
+
+    def test_cpp_test_suffix_is_matched(self):
+        result = analyze(
+            b"M\0src/parser.cpp\0M\0src/parser_test.cpp\0",
+            ("src/parser_test.cpp",),
+        )
+        self.assertEqual(result.test_changes, ("src/parser_test.cpp",))
+        self.assertEqual(result.impacts[0].candidates[0].score, 100)
+
+    def test_csharp_plural_test_suffix_is_matched(self):
+        result = analyze(
+            b"M\0src/Account.cs\0M\0src/AccountTests.cs\0",
+            ("src/AccountTests.cs",),
+        )
+        self.assertEqual(result.test_changes, ("src/AccountTests.cs",))
+        self.assertEqual(result.impacts[0].candidates[0].score, 100)
+
+    def test_lowercase_word_ending_in_test_is_not_misclassified(self):
+        result = analyze(b"M\0src/contest.py\0", ())
+        self.assertEqual(result.source_changes, ("src/contest.py",))
+        self.assertEqual(result.test_changes, ())
+
     def test_document_change_does_not_require_tests(self):
         result = analyze(b"M\0docs/guide.md\0", ())
         self.assertEqual(result.signal, "no-source-change")
