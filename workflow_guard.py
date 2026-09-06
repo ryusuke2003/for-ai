@@ -17,7 +17,17 @@ FULL_SHA = re.compile(r"^[0-9a-fA-F]{40}$")
 USES_LINE = re.compile(r"^\s*(?:-\s*)?uses\s*:\s*([^\s#]+)")
 WRITE_PERMISSION = re.compile(r"^\s*[A-Za-z0-9_-]+\s*:\s*write\s*(?:#.*)?$")
 WRITE_ALL = re.compile(r"^\s*permissions\s*:\s*write-all\s*(?:#.*)?$")
-PULL_REQUEST_TARGET = re.compile(r"(?:^|[\s\[-])pull_request_target\s*:")
+INLINE_WRITE_PERMISSION = re.compile(
+    r"^\s*permissions\s*:\s*\{[^}\n]*\b[A-Za-z0-9_-]+\s*:\s*write\b"
+)
+PULL_REQUEST_TARGET_KEY = re.compile(r"^\s*pull_request_target\s*:")
+PULL_REQUEST_TARGET_INLINE_LIST = re.compile(
+    r"^\s*on\s*:\s*\[[^\]]*\bpull_request_target\b"
+)
+PULL_REQUEST_TARGET_INLINE_MAP = re.compile(
+    r"^\s*on\s*:\s*\{[^}\n]*\bpull_request_target\s*:"
+)
+SECRET_REFERENCE = re.compile(r"\$\{\{\s*secrets\.")
 DOWNLOAD_AND_EXECUTE = re.compile(
     r"(?i)\b(?:curl|wget)\b[^\n|]*\|\s*(?:sudo\s+)?(?:bash|sh)\b"
 )
@@ -59,6 +69,14 @@ def _checkout_has_safe_credentials(lines: list[str], uses_index: int) -> bool:
     return False
 
 
+def _has_pull_request_target(line: str) -> bool:
+    return bool(
+        PULL_REQUEST_TARGET_KEY.match(line)
+        or PULL_REQUEST_TARGET_INLINE_LIST.match(line)
+        or PULL_REQUEST_TARGET_INLINE_MAP.match(line)
+    )
+
+
 def scan_workflow(path: Path, root: Path) -> list[Finding]:
     relative = path.relative_to(root).as_posix()
     try:
@@ -78,11 +96,11 @@ def scan_workflow(path: Path, root: Path) -> list[Finding]:
 
         if re.match(r"^\s*permissions\s*:", line):
             has_permissions = True
-        if WRITE_ALL.match(line) or WRITE_PERMISSION.match(line):
+        if WRITE_ALL.match(line) or WRITE_PERMISSION.match(line) or INLINE_WRITE_PERMISSION.match(line):
             findings.append(Finding(relative, line_number, "write-permission"))
-        if PULL_REQUEST_TARGET.search(line):
+        if _has_pull_request_target(line):
             findings.append(Finding(relative, line_number, "pull-request-target"))
-        if "${{ secrets." in line:
+        if SECRET_REFERENCE.search(line):
             findings.append(Finding(relative, line_number, "secret-reference"))
         if DOWNLOAD_AND_EXECUTE.search(line):
             findings.append(Finding(relative, line_number, "download-and-execute"))
